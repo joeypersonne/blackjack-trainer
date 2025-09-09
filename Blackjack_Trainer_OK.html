@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Blackjack Trainer — OK Edition</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen w-full bg-[radial-gradient(60%_60%_at_50%_0%,_rgba(255,255,255,1),_rgba(240,244,255,1))] text-slate-900">
+  <div id="app"></div>
+
+  <script src="https://unpkg.com/react@18/umd/react.development.js" crossorigin></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js" crossorigin></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+  <script type="text/babel">
+    const { useState, useMemo, useEffect } = React;
+    const cardToString = (v) => (v === 11 ? 'A' : String(v));
+    const handTotal = (cards) => {
+      let total = 0, aces = 0;
+      for (const c of cards) { if (c === 11) aces++; else total += Math.min(c, 10); }
+      for (let i = 0; i < aces; i++) total += 11;
+      while (total > 21 && aces > 0) { total -= 10; aces--; }
+      return total;
+    };
+    const recommendMove = (player, dealer) => {
+      const total = handTotal(player);
+      if (player.length === 2 && player[0] === player[1]) {
+        const p = player[0];
+        if (p === 11) return { move: 'Split', why: 'Always split Aces to start two premium hands.' };
+        if (p === 8)  return { move: 'Split', why: 'Always split 8s; avoids hard 16, a losing total.' };
+        if (p === 10) return { move: 'Stand', why: 'Never split 10s; 20 is already excellent.' };
+      }
+      const hasAce = player.includes(11);
+      const soft = hasAce && (handTotal(player) !== (player.reduce((a,c)=>a+Math.min(c,10),0)));
+      if (soft && total >= 19) return { move: 'Stand', why: `Soft ${total}: already strong; stand.` };
+      if (total >= 17) return { move: 'Stand', why: `Hard ${total}: strong enough to stand.` };
+      if (total === 11 && dealer !== 11) return { move: 'Double', why: '11 vs 2–10: press your edge to make 20–21 often.' };
+      if (total === 10 && dealer >= 2 && dealer <= 9) return { move: 'Double', why: '10 vs 2–9: strong draw to 20; double is best.' };
+      if (total === 9 && dealer >= 3 && dealer <= 6) return { move: 'Double', why: '9 vs 3–6: small but real advantage; double.' };
+      if (total >= 13 && total <= 16 && dealer >= 2 && dealer <= 6) return { move: 'Stand', why: `Hard ${total} vs 2–6: let the dealer bust.` };
+      if (total === 12 && dealer >= 4 && dealer <= 6) return { move: 'Stand', why: '12 vs 4–6 stands; hitting risks busting first.' };
+      return { move: 'Hit', why: 'Default: hit to improve; standing is too weak here.' };
+    };
+    const drawRandomCard = () => { const r = Math.floor(Math.random() * 13) + 1; if (r === 1) return 11; if (r >= 10) return 10; return r; };
+    const dealRandomHand = () => { const player = [drawRandomCard(), drawRandomCard()]; const dealer = drawRandomCard() || 10; return { player, dealer }; };
+    const ToolbarButton = ({ active, children, onClick }) => (
+      <button onClick={onClick} className={\`rounded-xl px-3 py-2 text-sm font-medium border shadow-sm transition \${active ? 'bg-white/80' : 'hover:bg-white/70'}\`}>{children}</button>
+    );
+    const Tag = ({ children }) => (<span className="inline-block rounded-full border px-2 py-0.5 text-xs font-medium text-gray-700">{children}</span>);
+    const Section = ({ title, subtitle, children }) => (
+      <div className="rounded-3xl border p-6 shadow-sm bg-white/70">
+        <div className="mb-3"><h2 className="text-xl font-bold leading-tight">{title}</h2>{subtitle && <p className="text-sm text-gray-500 mt-0.5">{subtitle}</p>}</div>{children}
+      </div>
+    );
+    const CardPanel = ({ title, icon, children, footer }) => (
+      <div className="rounded-3xl border p-5 bg-gradient-to-b from-white to-slate-50 shadow-sm">
+        <div className="flex items-center justify-between mb-3"><div className="flex items-center text-sm text-gray-600 font-medium"><span className="inline-grid place-items-center h-6 w-6 rounded-full bg-black/5 mr-2 text-xs">{icon}</span>{title}</div>{footer}</div>{children}
+      </div>
+    );
+    const Action = ({ label, intent, disabled, onClick }) => {
+      const ring = intent === 'stand' ? 'ring-emerald-300/60' : intent === 'hit' ? 'ring-sky-300/60' : intent === 'double' ? 'ring-amber-300/60' : intent === 'split' ? 'ring-fuchsia-300/60' : intent === 'surrender' ? 'ring-rose-300/60' : 'ring-transparent';
+      return (<button onClick={onClick} disabled={disabled} className={\`rounded-2xl border px-4 py-3 text-lg font-semibold shadow-sm hover:shadow-md active:scale-[0.99] transition disabled:opacity-60 disabled:cursor-not-allowed ring-2 \${ring}\`}>{label}</button>);
+    };
+    function Practice({ mistakes, setMistakes, replayHand, clearReplay, progress, setProgress }) {
+      const [state, setState] = useState(() => { const { player, dealer } = replayHand ?? dealRandomHand(); return { player, dealer, answered: false, userMove: null }; });
+      useEffect(() => { if (replayHand) { setState({ player: replayHand.player, dealer: replayHand.dealer, answered: false, userMove: null }); clearReplay(); } }, [replayHand]);
+      const rec = useMemo(() => recommendMove(state.player, state.dealer), [state.player, state.dealer]);
+      const choose = (move) => { if (state.answered) return; const correct = move === rec.move; if (!correct) setMistakes([...mistakes, { player: state.player, dealer: state.dealer, chosen: move, correct: rec.move, why: rec.why }]); setProgress({ total: progress.total + 1, correct: progress.correct + (correct ? 1 : 0) }); setState((s) => ({ ...s, answered: true, userMove: move })); };
+      const nextHand = () => { const { player, dealer } = dealRandomHand(); setState({ player, dealer, answered: false, userMove: null }); };
+      const accuracy = progress.total > 0 ? Math.round((progress.correct / progress.total) * 100) : 0;
+      const intentFor = (m) => (m === 'Stand' ? 'stand' : m === 'Hit' ? 'hit' : m === 'Double' ? 'double' : m === 'Split' ? 'split' : m === 'Surrender' ? 'surrender' : undefined);
+      return (
+        <div className="space-y-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <CardPanel title="Player" icon="🃏" footer={<Tag>Total: {handTotal(state.player)}</Tag>}><div className="text-3xl md:text-4xl font-extrabold tracking-tight">{state.player.map(cardToString).join(' • ')}</div></CardPanel>
+            <CardPanel title="Dealer Upcard" icon="🏦"><div className="text-3xl md:text-4xl font-extrabold tracking-tight">{cardToString(state.dealer)}</div></CardPanel>
+          </div>
+          <Section title="Choose Your Move" subtitle="Tap the best basic-strategy action">
+            <div className="grid grid-cols-2 md:grid-cols-5 gap-3">{(['Hit','Stand','Double','Split','Surrender']).map((m) => (<Action key={m} label={m} intent={intentFor(m)} disabled={state.answered} onClick={() => choose(m)} />))}</div>
+            <div className="flex items-center gap-3 mt-4">
+              <button onClick={nextHand} className="rounded-xl border px-4 py-2 text-sm font-semibold shadow-sm hover:shadow-md active:scale-[0.99]">Deal Next Hand</button>
+              <div className="h-2 w-40 rounded-full bg-slate-200/80 overflow-hidden"><div className="h-full bg-slate-900" style={{ width: `${accuracy}%` }}></div></div>
+              <span className="text-xs text-gray-600">{progress.correct}/{progress.total} correct • {accuracy}%</span>
+            </div>
+          </Section>
+          <Section title="Feedback" subtitle="Explanation appears after you choose">
+            {!state.answered ? (<div className="text-sm text-gray-600">Pick an action above to see the detailed reasoning.</div>) : (
+              <div className="rounded-2xl border p-4 bg-white/80">{state.userMove === rec.move ? (<p className="text-sm"><span className="font-semibold">✅ Correct — {rec.move}.</span> {rec.why}</p>) : (<p className="text-sm"><span className="font-semibold">❌ You chose {state.userMove}. Better: {rec.move}.</span> {rec.why}</p>)}</div>
+            )}
+          </Section>
+        </div>
+      );
+    }
+    function MistakeReview({ mistakes, setReplayHand, onClear }) {
+      if (mistakes.length === 0) return <div className="text-sm text-gray-500">No mistakes yet — keep practicing!</div>;
+      return (
+        <div className="space-y-3">
+          <div className="flex justify-end"><button onClick={onClear} className="px-3 py-2 border rounded text-xs shadow-sm hover:shadow-md active:scale-[0.99]">Clear All Mistakes</button></div>
+          {mistakes.map((m, i) => (
+            <div key={i} className="rounded-2xl border p-4 bg-white/70 shadow-sm">
+              <div className="text-sm"><b>Hand:</b> Player {m.player.map(cardToString).join(' • ')} vs Dealer {cardToString(m.dealer)}</div>
+              <div className="text-sm"><b>You chose:</b> {m.chosen} · <b>Correct:</b> {m.correct}</div>
+              <div className="text-xs text-gray-600 mt-1">{m.why}</div>
+              <div className="mt-2"><button onClick={() => setReplayHand({ player: m.player, dealer: m.dealer })} className="px-3 py-1 border rounded text-xs shadow-sm hover:shadow-md active:scale-[0.99]">Replay This Hand</button></div>
+            </div>
+          ))}
+        </div>
+      );
+    }
+    function App() {
+      const [mode, setMode] = useState('practice');
+      const [mistakes, setMistakes] = useState([]);
+      const [replayHand, setReplayHand] = useState(null);
+      const [progress, setProgress] = useState({ total: 0, correct: 0 });
+      const resetSession = () => { if (confirm('Reset progress and clear mistakes?')) { setProgress({ total: 0, correct: 0 }); setMistakes([]); setReplayHand(null); setMode('practice'); } };
+      return (
+        <div className="min-h-screen w-full">
+          <div className="sticky top-0 z-10 border-b bg-white/70 backdrop-blur">
+            <div className="mx-auto max-w-5xl px-4 py-2 flex items-center gap-2">
+              <div className="font-extrabold tracking-tight">Blackjack Trainer — OK</div>
+              <div className="ml-auto flex items-center gap-2">
+                <button className={`rounded-xl px-3 py-2 text-sm font-medium border shadow-sm transition ${mode==='practice' ? 'bg-white/80' : 'hover:bg-white/70'}`} onClick={()=>setMode('practice')}>Practice</button>
+                <button className={`rounded-xl px-3 py-2 text-sm font-medium border shadow-sm transition ${mode==='review' ? 'bg-white/80' : 'hover:bg-white/70'}`} onClick={()=>setMode('review')}>Review ({mistakes.length})</button>
+                <button className="rounded-xl px-3 py-2 text-sm font-medium border shadow-sm transition hover:bg-white/70" onClick={resetSession}>Reset</button>
+              </div>
+            </div>
+          </div>
+          <main className="mx-auto max-w-5xl p-4 md:p-6 space-y-6">
+            {mode === 'practice' && (<Practice mistakes={mistakes} setMistakes={setMistakes} replayHand={replayHand} clearReplay={() => setReplayHand(null)} progress={progress} setProgress={setProgress} />)}
+            {mode === 'review' && (<Section title="Review Mistakes" subtitle="Revisit tricky spots and replay them until they’re automatic."><MistakeReview mistakes={mistakes} setReplayHand={setReplayHand} onClear={() => setMistakes([])} /></Section>)}
+          </main>
+        </div>
+      );
+    }
+    const root = ReactDOM.createRoot(document.getElementById('app'));
+    root.render(<App/>);
+  </script>
+</body>
+</html>
